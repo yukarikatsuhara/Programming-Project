@@ -1,0 +1,249 @@
+---
+title: 'Homework #3:  Support Vector Machines and Tree-based methods'
+output: html_document
+---
+
+## Maximum margin classifiers
+
+1. Run the following code to create a simple dataset. 
+```{r simulation}
+set.seed(0)
+X1 <- c(3,1,3,1,2,4,4)
+X2 <- c(4,2,3,4,1,3,1)
+Y <- as.factor(c(rep("Red",4),rep("Blue",3)))
+dat <- data.frame(X1,X2,Y)
+print(dat)
+```
+
+2. Plot the data. Color-code the points by their outcome value `Y`.
+```{r}
+plot(X2, X1, col= as.integer(Y),
+     xlab='X2', ylab = 'X1', pch=19)
+legend('topright', legend = levels(Y), col = 1:2, pch=19, title='Y')
+```
+
+3. (3 points) Fit a maximal margin classifier with a linear decision boundary to this dataset using the `svm` function from `e1071`. Use the option `scale=FALSE` so that the model does not do post-processing of the training data. Plot the fitted model.
+```{r}
+library(e1071)
+svm1fit = svm(Y ~ ., data = dat, kernel='linear', scale = FALSE)
+svm1fit$nsv
+plot(svm1fit, data=dat)
+svm1fit
+
+```
+
+4. (1 point) Use the `coef` function to extract model coefficients from the maximum margin classifier.
+```{r}
+coef(svm1fit)
+```
+
+5. (2 points) Suppose we are going to add another observation to the dataset and refit the maximum margin classifier. Provide a new datapoint that, when added to this dataset, will not change the decision boundary. Refit the model to double check. Call this new datapoint `point1`.
+```{r}
+point1 <- data.frame(X1= 2.5, X2= 1.5, Y= "Blue")
+new_dat1 <- rbind(dat,point1)
+svm2fit <- svm(Y ~ . , data = new_dat1, kernel='linear', scale = 'FALSE')
+plot(svm2fit, new_dat1)
+```
+
+6. (2 points) Now provide a new datapoint that, when added to dataset `dat`, WILL change the decision boundary. Call this new datapoint `point2`. Pick an example point where the new dataset remains linearly separable.
+```{r}
+point2 <- data.frame(X1= 1.5, X2= 3.0, Y= "Blue")
+new_dat2 <- rbind(dat,point2)
+svm3fit <- svm(Y ~ . , data = new_dat2, kernel='linear', scale = 'FALSE')
+plot(svm3fit, new_dat2)
+
+```
+
+## Support vector machines
+ 
+7. Read in the dementia data "dementia_full.csv" into a data frame called `dementia_dat`. This data is from the UCSF Memory and Aging Center. The goal was to predict the type of dementia based on patterns of brain loss as measured through structural MRI.
+```{r}
+dementia_dat <- read.csv('dementia_full.csv')
+```
+
+8. (1 point) We will now predict the dementia diagnosis based on the available predictors. The diagnosis is given in the multiclass outcome of `MacCohort_kr`. To start, generate a table of the elements in the `MacCohort_kr` variable.
+```{r}
+table(dementia_dat$MacCohort_kr)
+```
+
+9. (1 point) Set the random seed to 7 and then split the data into 2 sets (440 train, and 220 test)
+```{r}
+set.seed(7)
+row_train <- sample(nrow(dementia_dat),440,replace = FALSE)
+dementia_train <- dementia_dat[row_train,]
+dementia_test <- dementia_dat[-row_train,]
+
+```
+
+10. (3 points) Fit a support vector machine to predict `MacCohort_kr` using predictors `Left_MTG_middle_temporal_gyrus`, `Left_Amygdala` and `Left_AIns_anterior_insula`,  with a radial basis kernel. Use 3-fold CV to tune the value of the `C` and `sigma` hyperparameters. Use the `caret` package with `method=svmRadial` and tune over the values `C = 1e-2,1e-1,1,10,100,1000,10000` and `sigma=1e-4,1e-3,1e-2,1e-1, 1,10`. (You may need the `kernlab` package to run this.)
+```{r}
+library(caret)
+library(kernlab)
+dementia_train_building <- dementia_train[,c('Left_MTG_middle_temporal_gyrus','Left_Amygdala', 'Left_AIns_anterior_insula','MacCohort_kr')]
+
+train_control <- trainControl(method="cv", number=3)
+caret_grid <- expand.grid(
+  C = c(1e-2,1e-1,1,10,100,1000,10000),
+  sigma = c(1e-4,1e-3,1e-2,1e-1, 1,10)
+)
+
+svm_model <- train(as.factor(MacCohort_kr) ~., data=dementia_train_building, trControl=train_control, method="svmRadial", tuneGrid=caret_grid)
+svm_model$results
+
+
+```
+
+11. (1 points) Determine the predictions of the SVM fit on the test dataset. What is the test accuracy?
+```{r}
+prediction = predict(svm_model, newdata= dementia_test)
+table(dementia_test$MacCohort_kr, prediction)
+# test accuracy
+mean(prediction == dementia_test$MacCohort_kr)
+```
+
+### The test accuracy is 0.67.
+
+12. (3 points) What is the accuracy of a model that randomly guesses the class label simply based on the fraction of observations in each class? Is the SVM doing better than random guessing?
+```{r}
+proportions_observed <- table(dementia_train_building$MacCohort_kr) / nrow(dementia_train_building)
+
+expected_accuracy <- sum(proportions_observed^2)
+
+print(expected_accuracy)
+```
+### The SVM's accuracy is better than the random guess because the accuracy is higher than 0.31.
+
+
+## Random Forests
+
+13. (2 points) Read in the prostate cancer dataset "Prostate_GSE6919_U95C.csv". Split 70% of the data for training and 30% for testing.
+```{r}
+set.seed(7)
+prostate <- read.csv("Prostate_GSE6919_U95C.csv")
+number_row <- round(nrow(prostate) * 0.7)
+train_row <- sample(nrow(prostate), number_row, replace = FALSE)
+prostate_train <- prostate[train_row,]
+prostate_test <- prostate[-train_row,]
+```
+
+14. (2 points) Fit a random forest with cancer outcome (`type`) as outcome and all other gene expression values as candidate predictors. Only consider 10 candidate predictors per node. (You may need to change the variable names to get this to work.) Use the "impurity" option to measure variable importance.
+```{r} 
+library(ranger)
+rfCancer <- ranger(as.factor(type)~.,data=prostate_train, mtry = 10, importance="impurity", probability = TRUE, seed = 42)
+rfCancer
+
+```
+
+15. (1 point) Determine the AUC of the fitted model on the test dataset.
+```{r}
+library(ROCit)
+pred = predict(rfCancer, data = prostate_test)
+prob <- pred$predictions[,2]
+
+roc_rf <- rocit(score =prob, class = prostate_test$type)
+ciAUC(roc_rf)
+plot(roc_rf)
+```
+
+16. (2 points) Based on the variable importance measures in the random forest, which gene was most important? What proportion of genes have a nonzero variable importance?
+```{r}
+var_import <- rfCancer$variable.importance
+head(var_import[order(var_import, decreasing = TRUE)])
+length(var_import[var_import!=0])/length(var_import)
+
+```
+### X54701_at is most important in this model because the variable importance is highest.
+
+
+17. (1 point) If you were going to fit a bagged model, how would you modify the call to the random forest code? Hint: How many candidate variables would you consider at each split? Note that you don't have to fit the model.
+```{r}
+
+# Candidate variables: Exclude the target variable
+num_variables <- ncol(prostate_train) - 1
+
+# Build a bagged model
+bagging_model <- ranger(as.factor(type)~.,
+                        data=prostate_train,
+                        mtry=num_variables,
+                        importance="impurity",
+                        seed = 42
+)
+
+
+```
+
+18. (3 points) Tune `mtry` for the random forest model using 3-fold CV on all the prostate cancer data over the values `10,20,40,80,160,320`. Set `min.node.size` to 1. Which mtry leads to the best cross-validated AUC? What is the cross-validated AUC of the selected model?
+```{r}
+train_control <- trainControl(method = "cv", number = 3, search = "grid", classProbs = TRUE, summaryFunction = twoClassSummary, savePredictions = "final")
+caret_grid <- expand.grid(mtry = c(10, 20, 40, 80, 160, 320), min.node.size = 1, splitrule = "gini")
+
+cv_mdl <- train(as.factor(type) ~ ., data=prostate_train,
+                trControl=train_control, method="ranger", tuneGrid = caret_grid,
+                metric = "ROC")
+
+# Parameters of the best model
+print(cv_mdl$bestTune)
+
+# Cross validated AUC
+best_mdl <- cv_mdl$results[cv_mdl$results$mtry == cv_mdl$bestTune$mtry, ]
+print(best_mdl$ROC)
+
+```
+### The best cross-validated AUC is 0.74 and the best model's mtry is 160.
+
+
+
+## Gradient boosted trees
+
+Let's now fit a gradient boosted tree to see how variable importance can change.
+
+19. (2 points) Fit a gradient boosted tree for this data using `xgboost`. Use 1000 trees, 0.1 eta, and max depth of 1. Make sure to use an appropriate loss function for the binary prediction task.
+```{r}
+library(xgboost)
+# Convert the data
+data_matrix <- as.matrix(prostate_train[, -1])
+label_vector <- ifelse(prostate_train$type == "primary_prostate_tumor", 1, 0)
+# Build XGBoost model
+params <- list(
+  objective = "binary:logistic",
+  eta = 0.1,
+  max_depth = 1
+)
+
+xgb_model <- xgboost(
+  data = data_matrix, 
+  label = label_vector, 
+  nrounds = 1000, 
+  params = params,
+  verbose = FALSE
+  )
+
+```
+
+20. (1 point) What is the AUC of this fitted model?
+```{r}
+# Convert the data
+data_matrix_test <- as.matrix(prostate_test[, -1])
+
+# Predict the probabilities
+pred <- predict(xgb_model, data_matrix_test)
+
+roc_rf <- rocit(score =pred, class = prostate_test$type )
+ciAUC(roc_rf)
+plot(roc_rf)
+
+```
+### Estimated AUC is 0.56.
+
+21. (3 points) What is the most important gene selected by xgb? To get this, take the absolute SHAP value of the test observations and find the gene with the highest magnitude SHAP value on average. Is it the same gene selected by the random forest? What is the rank for the top gene selected by the random forest?
+```{r}
+# Get the most important gene name based on SHAP value
+pred_shap <- predict(xgb_model, data_matrix_test, predcontrib = TRUE)
+mean_shap <- colMeans(abs(pred_shap))
+best_index <- which.max(mean_shap)
+names(mean_shap)[best_index]
+
+# The most important gene in the random forest model is X54701_at.
+```
+### The top gene is different between the random forest model and the xgboost model. There might be two reasons. First, the algorithms of the two models are different. The process of random forest is parallel but the xgboost model is built sequentially. The second reason is that the metrics are different between the variable importance and SHAP. Variable importance depends on the model but SHAP does not.
+
